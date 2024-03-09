@@ -440,17 +440,18 @@ def object_to_desynced_string(obj, dtype="C"):
     result = ctx.call('ObjectToDesyncedString', obj,dtype)
 
     return result
-
+    
 def python_to_desynced(code):
     if callable(code):
         code = inspect.getsource(code)
-    tree = ast.parse(source_code, type_comments=False)
+    tree = ast.parse(code, type_comments=False)
+
     tree = replace_binops_with_functions(tree)
     tree = transform_nested_calls(tree)
     tree = label_frames(tree)
     flow_control(tree)
-    frames = create_dso_from_ast(tree)
-    desyncedstring = object_to_desynced_string(frames)
+    dso = create_dso_from_ast(tree)
+    desyncedstring = object_to_desynced_string(dso)
     return desyncedstring
 
 
