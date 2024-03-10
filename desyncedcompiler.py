@@ -9,6 +9,7 @@ try:
 
     # simple wrapper of the astprettyprint library
     def astprint(tree):
+        astrender(tree)
         astpretty.pprint(tree, show_offsets=False)
         
 except ModuleNotFoundError:
@@ -85,27 +86,10 @@ def replace_binops_with_functions(tree):
                 return new_node
             else:
                 return node
-                
-    # Perform transformations until no changes are made
-    # I hate this... did I screw up recursion somewhere?
 
     visitor=BinOpReplacementVisitor()
     return visitor.visit(tree)
-    
-    while True:
-        old_tree_str = ast.dump(tree)
-        # Create a visitor
-        visitor = BinOpReplacementVisitor()
-        # Visit the tree and get the transformed tree
-        new_tree = visitor.visit(tree)
-        new_tree_str = ast.dump(new_tree)
-        # Check if any changes were made
-        if old_tree_str == new_tree_str:
-            # No changes were made, exit the loop
-            break
-        # Update the tree for the next pass
-        tree = new_tree
-    return tree
+
 
 
 class DS_Call(ast.Assign):
@@ -114,7 +98,7 @@ class DS_Call(ast.Assign):
     def __init__(self, targets, args, op):
         self.targets = targets
         self.args = args
-        self.next = -1
+        self.next = {}
         self.frame = -1
         self.op = op
 
