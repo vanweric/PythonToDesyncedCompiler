@@ -1,50 +1,11 @@
 import json
-import ast, inspect
-
-#Section: Helper Functions
-
-# astpretty is much better looking, install it!
-try:
-    import astpretty
-
-    # simple wrapper of the astprettyprint library
-    def astprint(tree):
-        astrender(tree)
-        astpretty.pprint(tree, show_offsets=False)
-        
-except ModuleNotFoundError:
-    import pprint
-    def ast_to_dict(node):
-        if isinstance(node, ast.AST):
-            node_dict = {'type': type(node).__name__}
-            for field, value in ast.iter_fields(node):
-                node_dict[field] = ast_to_dict(value)
-            return node_dict
-        elif isinstance(node, list):
-            return [ast_to_dict(item) for item in node]
-        else:
-            return node
-
-    def astprint(tree):
-        pprint.pprint(ast_to_dict(tree))
+import ast
+import inspect
 
 
-# Section 1: Import Desynced Ops
-def import_desynced_ops(path):
-    def to_function_name(string):
-        # Desynced block names are typically all capitalized.  Standardize on this.
-        # Obsolete instructions are marked by being surrounded by asterixes.  Replace with _ so it is a valid python function name
-        result =''.join([word.capitalize() for word in string.replace('*','_').replace('(','').replace(')','').split()])
-        return result
-        
-    with open (path, 'r') as jsonfile:
-        raw_import = json.load(jsonfile)
-    instructions = {to_function_name(v['name']):{**v, 'op':k} for k,v in raw_import.items() if 'name' in v.keys()}
-    return instructions
-    
-ds_ops = import_desynced_ops("./instructions.json")
-# Section: Section2
 
+
+# Section 2: Replacing Binops with Calls
 def replace_binops_with_functions(tree):
     class BinOpReplacementVisitor(ast.NodeTransformer):
         # Replace binary operations with function calls
@@ -90,7 +51,59 @@ def replace_binops_with_functions(tree):
     visitor=BinOpReplacementVisitor()
     return visitor.visit(tree)
 
+# Section 3: Flatten Nested Calls
+def flatten_calls(tree):
+    class FlatteningTransformer(ast.NodeTransformer):
+        def __init__(self):
+            super().__init__()
+            self.temp_count = 1
 
+        def visit_Call(self, node):
+            nodelist = []
+            for i, arg in enumerate(node.args):
+                if isinstance(arg, ast.Call):                
+                    temp_var = f'Temp_{self.temp_count}'
+                    self.temp_count += 1
+                    node.args[i] = ast.Name(id=temp_var, ctx=ast.Load())
+                    #list of all calls that have to happen first
+                    ncalls = self.visit_Call(arg)
+                    ncalls[-1].targets=[ast.Name(id=temp_var, ctx=ast.Store())]
+                    nodelist.extend(ncalls)
+            assign_wrapper = ast.Assign(targets=[], #to be filled in by parent
+                                        value=node,
+                                        keywords=[])
+            nodelist.append(assign_wrapper)
+            
+            return nodelist
+
+
+        def visit_Assign(self, node):
+            if isinstance(node.value, (ast.Name, ast.Constant, ast.Tuple)):
+                # Special case for a bare Assignment - this is a Copy function, which is 'set_reg' internally
+                call = ast.Call(func = ast.Name(id='Copy', ctx='Load'),
+                                targets = node.targets,
+                                args = [node.value],
+                                keywords=[])
+                node.value = call
+                return node
+            if isinstance(node.value, ast.Call):
+                ncalls = self.visit(node.value)
+                ncalls[-1].targets=node.targets
+                return ncalls
+
+        def visit_Expr(self, node):
+            if isinstance(node.value, ast.Call):
+                ncalls = self.visit(node.value)
+                #ncalls[-1] = ast.Expr(value = ncalls[-1].value)
+                return ncalls
+
+    transformer = FlatteningTransformer()
+    tree = transformer.visit(tree)
+    return tree
+
+
+
+# Section 4: Translate to DS Calls
 
 class DS_Call(ast.Assign):
     _fields = ('targets', 'args', 'op', 'frame', 'next')
@@ -102,37 +115,35 @@ class DS_Call(ast.Assign):
         self.frame = -1
         self.op = op
 
-def transform_nested_calls(tree):
-    class FlatteningTransformer(ast.NodeTransformer):  
-        def __init__(self):
-            super().__init__()
-            self.temp_count = 1
-            
+    def unparse(self, node):
+        self.fill()
+        self.traverse(node.targets)
+        if(len(node.targets)): self.write(' = ')
+        self.write(f"DS_Call_{node.op}")
+        with self.delimit("(", ")"):
+            comma = False
+            for e in node.args:
+                if comma:
+                    self.write(", ")
+                else:
+                    comma = True
+                self.traverse(e)
+        self.write(f" | {node.frame}-->{node.next}")
+
+''' Monkey-Patch in an unparser for DS Calls '''
+ast._Unparser.visit_DS_Call = DS_Call.unparse
+
+def convert_to_ds_call(tree):
+    
+    class DS_Call_Transformer(ast.NodeTransformer):   
+        
         def visit_Call(self, node, target=None):
             if target:
                 node.targets=[target]
-            
-            nodelist = [DS_Call( targets=[target], args=node.args, op=node.func.id)]
-            for i, arg in enumerate(node.args):
-                
-                if isinstance(arg, ast.Call):
-                    temp_var = f'Temp_{self.temp_count}'
-                    self.temp_count += 1                    
-                    nodelist.insert(0, self.visit_Call(arg, ast.Name(id=temp_var, ctx=ast.Store())))
-                    node.args[i] = ast.Name(id=temp_var, ctx=ast.Load())
-                    
-            # Return a list containing the original call node and the new call node
-            def flatten(lst):
-                return [item for sublist in lst for item in (flatten(sublist) if isinstance(sublist, list) else [sublist])]
-            nodelist = flatten(nodelist)
-            for node in nodelist:
-                self.visit(node)
-            return nodelist
+            return [DS_Call( targets=[target], args=node.args, op=node.func.id)]
 
         def visit_Assign(self, node):
-
             if isinstance(node.value, (ast.Name, ast.Constant, ast.Tuple)):
-                
                 # Special case for a bare Assignment - this is a Copy function, which is 'set_reg' internally
                 new_node = DS_Call(targets = node.targets, args = [node.value], op = 'Copy')
                 new_node = self.visit(new_node)
@@ -156,9 +167,11 @@ def transform_nested_calls(tree):
                 return ast.Constant( value=[e.value for e in node.elts])
             return node
 
-    return FlatteningTransformer().visit(tree)
+    return DS_Call_Transformer().visit(tree)
 
-def label_frames(tree):
+# Section 5: Labeling Pass
+
+def label_frames_vars(tree):
     def create_variable_remap(input_list):
         highest_letter = 'A'
         highest_temp_number = 0
@@ -216,7 +229,7 @@ def label_frames(tree):
     tree = framelabeler.visit(tree)
     return tree
 
-
+# Section 6: Flow Control
 
 def flow_control(tree):
 
@@ -277,9 +290,9 @@ def flow_control(tree):
     
     def flow_For(node, exit=-1):
         target = node.target
-        node.target = None
-        #print('For:')
-        #astprint(node)
+        ''' The unparser needs the for loop to still have a valid target '''
+        node.target = ast.Name(id='_', ctx=ast.Store())
+
         flow_list(node.body)
         flow_list(node.iter)
         body_first, body_last = find_first_last_DS_Call(node.body)
@@ -297,9 +310,26 @@ def flow_control(tree):
     if isinstance(tree.body[0], ast.FunctionDef):
         return flow_list(tree.body[0].body)
     return flow_list(tree.body)
-    
 
-def create_dso_from_ast(tree):
+# Section 7: Import Desynced Ops
+
+def import_desynced_ops(path):
+    def to_function_name(string):
+        # Desynced block names are typically all capitalized.  Standardize on this.
+        # Obsolete instructions are marked by being surrounded by asterixes.  Replace with _ so it is a valid python function name
+        result =''.join([word.capitalize() for word in string.replace('*','_').replace('(','').replace(')','').split()])
+        return result
+        
+    with open (path, 'r') as jsonfile:
+        raw_import = json.load(jsonfile)
+    instructions = {to_function_name(v['name']):{**v, 'op':k} for k,v in raw_import.items() if 'name' in v.keys()}
+    return instructions
+    
+ds_ops = import_desynced_ops("./instructions.json")
+
+# Section 8: Translate to DSO
+
+def create_dso_from_ast(tree, debug=False):
 
     class DSO_from_DSCalls(ast.NodeVisitor):
         def __init__(self, debug=False):
@@ -346,6 +376,14 @@ def create_dso_from_ast(tree):
                     if isinstance(val.value[0], int) and isinstance(val.value[1], str):
                         return {"id": val.value[1], "num": val.value[0]}
 
+        def translate_exec(self, next, exec_ix):
+            # This is just scaffolding at the moment
+            # Needs a ton of work...
+            try:
+                return list(next.values())[exec_ix]+1
+            except IndexError:
+                return False
+
         def visit_DS_Call(self, node):
             op = ds_ops[node.op]
             if self.debug:
@@ -370,7 +408,7 @@ def create_dso_from_ast(tree):
                         res[str(i)] = self.translate_register_or_value(node.args,arg_ix)
                         arg_ix +=1
                     if arg[0] == 'exec':
-                        res[str(i)]=list(node.next.values())[exec_ix]+1
+                        res[str(i)]= self.translate_exec(node.next, exec_ix)
                         exec_ix+=1
                         
             self.dso[str(node.frame)] = res
@@ -389,13 +427,16 @@ def create_dso_from_ast(tree):
                 name = "FromPythonCompiler"
             self.dso["name"] = name
             
-    walker = DSO_from_DSCalls()
+    walker = DSO_from_DSCalls(debug)
     walker.visit(tree)
     walker.parameters_block()
     walker.name_block(tree)
     dso = walker.dso
     
     return walker.dso
+
+
+# Section 9: Bas62 Encode
 
 from py_mini_racer import py_mini_racer
 
@@ -424,15 +465,17 @@ def object_to_desynced_string(obj, dtype="C"):
     result = ctx.call('ObjectToDesyncedString', obj,dtype)
 
     return result
-    
+
+# Section 10: Putting it all together
+
 def python_to_desynced(code):
     if callable(code):
         code = inspect.getsource(code)
     tree = ast.parse(code, type_comments=False)
-
     tree = replace_binops_with_functions(tree)
-    tree = transform_nested_calls(tree)
-    tree = label_frames(tree)
+    tree = flatten_calls(tree)
+    tree = convert_to_ds_call(tree)
+    tree = label_frames_vars(tree)
     flow_control(tree)
     dso = create_dso_from_ast(tree)
     desyncedstring = object_to_desynced_string(dso)
