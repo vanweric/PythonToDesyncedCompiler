@@ -1,6 +1,7 @@
 import json
 import ast
 import inspect
+from asthelpers import astprint
 
 
 
@@ -481,8 +482,36 @@ def python_to_desynced(code):
     desyncedstring = object_to_desynced_string(dso)
     return desyncedstring
 
+from astrender import astrender
+from asthelpers import unparse
 
 
+def python_to_desynced_detailed(code):
+    if callable(code):
+        code = inspect.getsource(code)
+    tree = ast.parse(code, type_comments=False)
+    print("As parsed:")
+    astrender(tree)
+    tree = replace_binops_with_functions(tree)
+    print("BinOps and AugAssigns mapped to calls:")
+    print(unparse(tree))
+    tree = flatten_calls(tree)
+    print("Calls Flattened:")
+    astrender(tree)
+    tree = convert_to_ds_call(tree)
+    print("Convert to DS Calls")
+    astprint(tree)
+    tree = label_frames_vars(tree)
+    print("Labeling Pass")
+    astrender(tree)
+    flow_control(tree)
+    print("Flow Control")
+    astrender(tree)
+    dso = create_dso_from_ast(tree)
+    print("As DSO")
+    print(json.dumps(dso))
+    desyncedstring = object_to_desynced_string(dso)
+    return desyncedstring
 
 
 

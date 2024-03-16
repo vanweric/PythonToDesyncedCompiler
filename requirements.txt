@@ -1,2 +1,4 @@
 py_mini_racer
 astpretty
+pydot
+graphviz
