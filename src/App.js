@@ -36,9 +36,9 @@ const App = () => {
   const examples = [
     ["Simple Test", "simple.py"],
     ["Recycle Bot", "Roomba.py"],
-    ["Recycle Hub", "recyclehub.py"],
-    ["Radar Tower", "radartower.py"],
-    ["Build As Needed", "buildasneeded.py"],
+    ["Recycle Hub", "RecycleHub.py"],
+    ["Radar Tower", "RadarTower.py"],
+    ["Build As Needed", "BuildAsNeeded.py"],
   ]
 
   const formatStringAsFunction = (str) => {
@@ -123,7 +123,6 @@ const App = () => {
   const loadCompiler = async () => {
     setCompiling(true);
     const locals = pyodide.toPy({ test1: desyncedExport });
-    console.log(pyodide.runPython(await (await fetch("./tinycompiler.py")).text()));
     console.log(pyodide.runPython(await (await fetch("./desyncedcompiler.py")).text()));
     console.log(pyodide.runPython("import_desynced_ops(path = None, jsonfile=test1)", { locals: locals }));
     setCompiling(false);
@@ -139,7 +138,6 @@ const App = () => {
       if (!loading) {
         console.log("Start Compiler Loadup");
         const locals = pyodide.toPy({ test1: desyncedExport });
-        console.log(pyodide.runPython(await (await fetch("./tinycompiler.py")).text()));
         console.log(pyodide.runPython(await (await fetch("./desyncedcompiler.py")).text()));
         console.log(pyodide.runPython("import_desynced_ops(path = None, jsonfile=test1)", { locals: locals }));
         console.log("End Compiler Setup");
