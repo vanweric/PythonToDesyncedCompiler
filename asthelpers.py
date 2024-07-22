@@ -12,9 +12,26 @@ class ExcludeValuesWrapper:
 
 astpretty._fields = ExcludeValuesWrapper(astpretty._fields, ['keywords','type_comment','type_ignores'])
 
-# simple wrapper of the astprettyprint library
-def astprint(tree):
-    astpretty.pprint(tree, show_offsets=False)
+try:
+    import astpretty
+    def astprint(tree, show_attributes=False):
+        if isinstance(tree, list):
+            for node in tree:
+                astprint(node, show_attributes)
+        elif isinstance(tree, ast.AST):
+            astpretty.pprint(tree, show_offsets=show_attributes)
+        else:
+            print(tree)
+
+except ModuleNotFoundError:
+    def astprint(tree, show_attributes=False):
+        if isinstance(tree, list):
+            for node in tree:
+                astprint(node, show_attributes)
+        elif isinstance(tree, ast.AST):
+            print(ast.dump(tree, indent=4, annotate_fields=True, include_attributes=show_attributes))
+        else:
+            print(tree)
 
 def unparse(tree):
     class FixLineNumbers(ast.NodeVisitor):
@@ -31,3 +48,10 @@ def unparse(tree):
     fixer.visit(tree)
     return ast.unparse(tree)
 
+def flat_ast_iter_fields(node):
+    for field_name, field in ast.iter_fields(node):
+        if isinstance(field, list):
+            for item in field:
+                yield (field_name, item)
+        else:
+            yield (field_name, field)

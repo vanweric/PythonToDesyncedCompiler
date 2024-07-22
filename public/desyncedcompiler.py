@@ -1,7 +1,6 @@
 import json
 import ast
 import inspect
-from asthelpers import astprint
 
 
 
@@ -101,8 +100,6 @@ def flatten_calls(tree):
     transformer = FlatteningTransformer()
     tree = transformer.visit(tree)
     return tree
-
-
 
 # Section 4: Translate to DS Calls
 
@@ -314,24 +311,28 @@ def flow_control(tree):
 
 # Section 7: Import Desynced Ops
 
-def import_desynced_ops(path):
-    def to_function_name(string):
-        # Desynced block names are typically all capitalized.  Standardize on this.
-        # Obsolete instructions are marked by being surrounded by asterixes.  Replace with _ so it is a valid python function name
-        result =''.join([word.capitalize() for word in string.replace('*','_').replace('(','').replace(')','').split()])
-        return result
-        
-    with open (path, 'r') as jsonfile:
-        raw_import = json.load(jsonfile)
-    instructions = {to_function_name(v['name']):{**v, 'op':k} for k,v in raw_import.items() if 'name' in v.keys()}
-    return instructions
-    
-ds_ops = import_desynced_ops("./instructions.json")
+_instructions = None
+def import_desynced_ops(path = None, jsonfile = None):
+    global _instructions
+
+    if not _instructions:
+        def to_function_name(string):
+            # Desynced block names are typically all capitalized.  Standardize on this.
+            # Obsolete instructions are marked by being surrounded by asterixes.  Replace with _ so it is a valid python function name
+            result =''.join([word.capitalize() for word in string.replace('*','_').replace('(','').replace(')','').split()])
+            return result
+        if path:
+            with open (path, 'r') as jsonfile:
+                raw_import = json.load(jsonfile)["instructions"]
+        elif jsonfile:
+            raw_import = jsonfile["instructions"]
+        _instructions = {to_function_name(v['name']):{**v, 'op':k} for k,v in raw_import.items() if 'name' in v.keys()}
+    return _instructions
 
 # Section 8: Translate to DSO
 
 def create_dso_from_ast(tree, debug=False):
-
+    ds_ops = import_desynced_ops()
     class DSO_from_DSCalls(ast.NodeVisitor):
         def __init__(self, debug=False):
             self.dso={}
@@ -387,10 +388,6 @@ def create_dso_from_ast(tree, debug=False):
 
         def visit_DS_Call(self, node):
             op = ds_ops[node.op]
-            if self.debug:
-                print('\n\n')
-                print(op)
-                astprint(node)
             res={}
             res['op'] = op['op']
             if node.next['next'] != node.frame+1:
@@ -413,8 +410,6 @@ def create_dso_from_ast(tree, debug=False):
                         exec_ix+=1
                         
             self.dso[str(node.frame)] = res
-            if self.debug:
-                print(res)
 
         def parameters_block(self):
             if len(self.parameters):
@@ -439,37 +434,84 @@ def create_dso_from_ast(tree, debug=False):
 
 # Section 9: Bas62 Encode
 
-from py_mini_racer import py_mini_racer
+class b62:
+    _instance = None
+    def __new__(cls, environment):
+        if not cls._instance:
+            if environment == "python":
+                cls._instance = b62_mini_racer()
+            elif environment == "pyodide":
+                cls._instance = b62_pyodide()
+            else:
+                raise Exception("Unknown environment") 
+        return cls._instance
 
-def object_to_desynced_string(obj, dtype="C"):
-    # Create a PyMiniRacer instance
-    ctx = py_mini_racer.MiniRacer()
-    
-    # Load the JavaScript file
-    with open('dsconvert.js', 'r') as file:
-        js_code = file.read()
-    patch = '''
-    class TextEncoder {
-        encode(str) {
-            const codeUnits = new Uint8Array(str.length);
-            for (let i = 0; i < str.length; i++) {
-                codeUnits[i] = str.charCodeAt(i);
+class b62_mini_racer():
+    def __init__(self):
+        print("Initializing Mini Racer")
+        import py_mini_racer
+        ctx = py_mini_racer.MiniRacer()
+        with open('./src/dsconvert.js', 'r') as file:
+            js_code = file.read()
+        patch = '''
+        
+        class TextEncoder {
+            encode(str) {
+                const codeUnits = new Uint8Array(str.length);
+                for (let i = 0; i < str.length; i++) {
+                    codeUnits[i] = str.charCodeAt(i);
+                }
+                return codeUnits;
             }
-            return codeUnits;
         }
-    }
-    '''
-    # Evaluate the JavaScript code
-    ctx.eval(patch+js_code)
-    
-    # Call the JavaScript function
-    result = ctx.call('ObjectToDesyncedString', obj,dtype)
 
-    return result
+        class TextDecoder {
+            decode(codeUnits) {
+                let str = '';
+                for (let i = 0; i < codeUnits.length; i++) {
+                    str += String.fromCharCode(codeUnits[i]);
+                }
+                return str;
+            }
+        }
+        
+        '''
+        ctx.eval((patch+js_code).replace("export function", "function"))
+        self._ctx = ctx
+
+    def encode(self, obj, dtype="C"):
+        result = self._ctx.call('ObjectToDesyncedString', obj, dtype)
+        return result
+
+    def decode(self, dstring):
+        result = self._ctx.call('DesyncedStringToObject', dstring)
+        return result
+
+class b62_pyodide:
+    def __init__(self):
+        print("Initializing Mini Racer")
+        import dsconvert
+
+    def encode(self, obj, dtype="C"):
+        return dsconvert.ObjectToDesyncedString(obj, dtype)
+
+    def decode(self, dstring):
+        return dsconvert.DesyncedStringToObject(dstring)
 
 # Section 10: Putting it all together
 
-def python_to_desynced(code):
+def python_to_desynced(code, environment=None):
+    print("Code:\n", code)
+    if environment is None:
+        import sys
+        if "pyodide" in sys.modules:
+            environment = "pyodide"
+        else:
+            environment = "python"
+
+    if environment == "python":
+        ds_ops = import_desynced_ops(path ="./src/desyncedexport.json")
+
     if callable(code):
         code = inspect.getsource(code)
     tree = ast.parse(code, type_comments=False)
@@ -479,9 +521,12 @@ def python_to_desynced(code):
     tree = label_frames_vars(tree)
     flow_control(tree)
     dso = create_dso_from_ast(tree)
-    desyncedstring = object_to_desynced_string(dso)
+    if environment == "pyodide":
+        return json.dumps(dso)
+    desyncedstring = b62(environment).encode(dso)
     return desyncedstring
 
+'''
 from astrender import astrender
 from asthelpers import unparse
 
@@ -510,11 +555,8 @@ def python_to_desynced_detailed(code):
     dso = create_dso_from_ast(tree)
     print("As DSO")
     print(json.dumps(dso))
-    desyncedstring = object_to_desynced_string(dso)
+    desyncedstring = b62().encode(dso)
     return desyncedstring
+'''
 
-
-
-
-
-
+"Imported!"

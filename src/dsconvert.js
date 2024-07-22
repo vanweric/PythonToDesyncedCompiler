@@ -18,7 +18,7 @@
    USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-function DesyncedStringToObject(str, info)
+export function DesyncedStringToObject(str, info)
 {
 	if (str.length > 10*1024*1024) throw new Error("Input string is over 10MB"); // refuse strings larger than 10MB
 	var b62 = new Uint8Array(str.length), idx = 0, idxend = b62.length;
@@ -192,7 +192,7 @@ function DesyncedStringToObject(str, info)
 	return Parse();
 }
 
-function ObjectToDesyncedString(obj, type)
+export function ObjectToDesyncedString(obj, type)
 {
     
 	// Serialize object into growing buffer
