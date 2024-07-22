@@ -5,3 +5,6 @@
 /public/.ipynb_checkpoints
 /public/__pycache__
 /scratch
+/build/.ipynb_checkpoints
+/build/__pycache__
+/build

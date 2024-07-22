@@ -1,3 +1,5 @@
+/* eslint-disable no-unused-expressions */
+
 /*
    Copyright (C) 2023-2024 Stage Games Inc.
 
