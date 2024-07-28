@@ -3,7 +3,8 @@ import ast
 import inspect
 
 
-
+def SyntaxErrorFromAST(message, node):
+    return SyntaxError(message, (None, node.lineno, node.col_offset, None))
 
 # Section 2: Replacing Binops with Calls
 def replace_binops_with_functions(tree):
@@ -169,33 +170,56 @@ def convert_to_ds_call(tree):
 
 # Section 5: Labeling Pass
 
-def label_frames_vars(tree):
-    def create_variable_remap(input_list):
-        highest_letter = 'A'
-        highest_temp_number = 0
+def label_frames_vars(tree, debug=False):
+    allowed_names = 'ABCDEFGHIJKLMNOQRSTUVWXYZ' #don't allow P
     
-        for item in input_list:
-            if item.startswith('Temp_'):
-                temp_number = int(item.split('_')[1])
-                highest_temp_number = max(highest_temp_number, temp_number)
-            elif item.isalpha():
-                highest_letter = max(highest_letter, item)
+    class ParameterFinder(ast.NodeVisitor):
+        def __init__(self, variables={}):
+            self.variables = variables
 
-        mapping = {i:i for i in input_list}
-        for i in range(1, highest_temp_number + 1):
-            temp_key = f'Temp_{i}'
-            temp_value = chr(ord(highest_letter) + i)
-            mapping[temp_key] = temp_value
-    
-        return mapping
+        def visit_arguments(self, node):
+            '''
+            Named arguments (P1, P2, P3, ...) always use their named slot.
+            Unnamed arguments are given the next available slot.
+            This may leave gaps.
+            '''
+            p_ix = 1
+            for arg in node.args:
+                if arg.arg[0] == "P" and arg.arg[1:].isdigit():
+                    new_ix = int(arg.arg[1:])
+                    if new_ix > p_ix: 
+                        p_ix = new_ix
+                    elif new_ix < p_ix:
+                        raise SyntaxErrorFromAST(
+                            f'A named Parameter ({arg.arg}) with a lower index was given after a higher index ({p_ix})',
+                            arg)
+                self.variables[arg.arg] = f"P{p_ix}"
+                p_ix+=1
 
     class VariableFinder(ast.NodeVisitor):
-        def __init__(self):
-            self.variables = {}
+        def __init__(self, variables={}):
+            self.variables = variables
 
         def visit_Name(self, node):
-            self.variables[node.id]=None
+            if node.id not in self.variables.values():
+                if node.id in allowed_names:
+                    self.variables.setdefault(node.id,node.id)
+                else:
+                    self.variables.setdefault(node.id,None)
 
+    
+    def remap_temp_variables(mapping):
+        '''
+        At this point parameters are already renamed
+        '''
+        existing_keys = list(mapping.keys())
+        for key in existing_keys:
+            if mapping[key] is None:
+                name = next((name for name in allowed_names if name not in mapping.values()))
+                mapping[key] = name
+        return mapping 
+
+    
     class VariableLabeler(ast.NodeTransformer):
         def __init__(self, mapper):
             super().__init__()
@@ -203,7 +227,12 @@ def label_frames_vars(tree):
         
         def visit_Name(self, node):
             if node.id in self.mapper.keys():
-                node.id = self.mapper[node.id]
+                    node.id = self.mapper[node.id]
+            return node
+
+        def visit_arg(self, node):
+            if node.arg in self.mapper.keys():
+                node.arg = self.mapper[node.arg]+'|'+node.arg
             return node
             
     class FrameLabeler(ast.NodeTransformer):  
@@ -216,13 +245,26 @@ def label_frames_vars(tree):
             self.frame_count+=1
             return node
 
-            
-    finder = VariableFinder()
-    finder.visit(tree)
-    vars = finder.variables.keys()
-    remap = create_variable_remap(vars)
-    varlabeler = VariableLabeler(remap)
+    parameterfinder = ParameterFinder()
+    parameterfinder.visit(tree)
+    parameters = parameterfinder.variables
+    if (debug): 
+        print(parameters)
+        
+    variablefinder = VariableFinder(parameters)
+    variablefinder.visit(tree)
+    parameters_and_variables = variablefinder.variables
+    if (debug): 
+        print(parameters_and_variables)
+        
+    remap = remap_temp_variables(parameters_and_variables)
+    flipped_remap = {k:v for k,v in remap.items()}
+    if (debug): 
+        print(f'{flipped_remap=}')
+        
+    varlabeler = VariableLabeler(flipped_remap)
     tree = varlabeler.visit(tree)
+    
     framelabeler = FrameLabeler()
     tree = framelabeler.visit(tree)
     return tree
@@ -311,28 +353,46 @@ def flow_control(tree):
 
 # Section 7: Import Desynced Ops
 
-_instructions = None
-def import_desynced_ops(path = None, jsonfile = None):
-    global _instructions
-
-    if not _instructions:
-        def to_function_name(string):
-            # Desynced block names are typically all capitalized.  Standardize on this.
-            # Obsolete instructions are marked by being surrounded by asterixes.  Replace with _ so it is a valid python function name
-            result =''.join([word.capitalize() for word in string.replace('*','_').replace('(','').replace(')','').split()])
-            return result
+class desynced_ops:
+    _instructions = None
+    
+    def __new__(cls, path=None, jsonfile=None):
+        raw_import = None
         if path:
             with open (path, 'r') as jsonfile:
+                import json
                 raw_import = json.load(jsonfile)["instructions"]
         elif jsonfile:
             raw_import = jsonfile["instructions"]
-        _instructions = {to_function_name(v['name']):{**v, 'op':k} for k,v in raw_import.items() if 'name' in v.keys()}
-    return _instructions
+
+        if raw_import:
+            cls._instructions =  {cls.to_function_name(v['name']):{**v, 'op':k} for k,v in raw_import.items() if 'name' in v.keys()}
+            print("instructions initialized")
+
+    @classmethod
+    def instructions(cls):
+        if cls._instructions:
+            return cls._instructions
+        else:
+            print(cls._instructions)
+            raise Exception("Instructions not initialized")
+
+    @classmethod
+    def to_function_name(self, string):
+        # Desynced block names are typically all capitalized.  Standardize on this.
+        # Obsolete instructions are marked by being surrounded by asterixes.  Replace with _ so it is a valid python function name
+        result =''.join([word.capitalize() for word in string.replace('*','_').replace('(','').replace(')','').split()])
+        return result
+
+    
+def import_desynced_ops(path = None, jsonfile = None):
+    desynced_ops(path, jsonfile)
+    return desynced_ops.instructions()
 
 # Section 8: Translate to DSO
 
 def create_dso_from_ast(tree, debug=False):
-    ds_ops = import_desynced_ops()
+    ds_ops = desynced_ops.instructions()
     class DSO_from_DSCalls(ast.NodeVisitor):
         def __init__(self, debug=False):
             self.dso={}
@@ -353,7 +413,7 @@ def create_dso_from_ast(tree, debug=False):
                     return False
                 if val.id[0] == 'P':
                     parameter_ix = int(val.id[1:])
-                    self.parameters[parameter_ix]=True
+                    self.parameters.setdefault(parameter_ix,True)
                     return parameter_ix
                 specialregs= {'Goto':-1,
                               'Store':-2,
@@ -411,6 +471,13 @@ def create_dso_from_ast(tree, debug=False):
                         
             self.dso[str(node.frame)] = res
 
+        def visit_arg(self, node):
+            arg = node.arg
+            parsed = arg[1:].split('|', 1)
+            parameter_ix = int(parsed[0])
+            name = parsed[1] if len(parsed)>1 else True
+            self.parameters[parameter_ix]=name
+            
         def parameters_block(self):
             if len(self.parameters):
                 pblock = [self.parameters.get(i+1, False) for i in range(max(self.parameters.keys()))]
@@ -436,7 +503,7 @@ def create_dso_from_ast(tree, debug=False):
 
 class b62:
     _instance = None
-    def __new__(cls, environment):
+    def __new__(cls, environment=None):
         if not cls._instance:
             if environment == "python":
                 cls._instance = b62_mini_racer()
@@ -501,7 +568,6 @@ class b62_pyodide:
 # Section 10: Putting it all together
 
 def python_to_desynced(code, environment=None):
-    print("Code:\n", code)
     if environment is None:
         import sys
         if "pyodide" in sys.modules:

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
-import { globalCompletion, localCompletionSource, python, pythonLanguage } from '@codemirror/lang-python';
+import { globalCompletion, localCompletionSource, pyodide, pythonLanguage } from '@codemirror/lang-python';
 import { LanguageSupport } from '@codemirror/language';
 
 import ListGroup from "react-bootstrap/ListGroup";
@@ -9,13 +9,12 @@ import Container from 'react-bootstrap/Container';
 import Row from 'react-bootstrap/Row';
 import Col from 'react-bootstrap/Col';
 
-import { Graphviz } from 'graphviz-react';
+//import { Graphviz } from 'graphviz-react';
 
 import desyncedExport from './desyncedexport.json'
 //import desyncedcompiler from './desyncedcompiler.py'
 import { ObjectToDesyncedString } from './dsconvert'
 
-import logo from './logo.svg';
 import './App.css';
 
 import usePyodide from './usePyodide';
@@ -24,13 +23,12 @@ import usePyodide from './usePyodide';
 
 
 const App = () => {
-  const { pyodide, loading, error } = usePyodide();
+  const { pyodide, loading } = usePyodide();
   const [output, setOutput] = useState('');
 
   const [writeeditor, setwriteeditor] = useState('');
   const [readeditor, setreadeditor] = useState('');
 
-  const [justincase, setjustincase] = useState('');
   const [compiling, setCompiling] = useState(false);
 
   const examples = [
@@ -56,6 +54,7 @@ const App = () => {
           detail: desyncedExport.instructions[key]["desc"],
           type: "function",
         }
+      return false
     }
     ).filter(Boolean);
 
@@ -67,6 +66,7 @@ const App = () => {
           detail: String(desyncedExport.items[key]["name"]),
           type: "keyword",
         }
+        return false;
     }
     ).filter(Boolean);
 
@@ -78,16 +78,17 @@ const App = () => {
             detail: String(desyncedExport.components[key]["name"]),
             type: "keyword",
           }
+          return false;
       }
       ).filter(Boolean);
 
   const myCompletions = function (context) {
     let word = context.matchBefore(/\w*/)
-    if (word.from == word.to && !context.explicit)
+    if (word.from === word.to && !context.explicit)
       return null
     return {
       from: word.from,
-      options: [...instruction_completions, ...constants_completions]
+      options: [...instruction_completions, ...components_completions, ...constants_completions]
     }
   };
 
@@ -108,17 +109,12 @@ const App = () => {
     fetch(`./examples/${file}`)
       .then((r) => r.text())
       .then(text => {
+        console.log(file);
         console.log(text);
         setreadeditor(text);
         setwriteeditor(text);
       })
   }
-
-  const loadInstructions = async () => {
-
-    console.log(pyodide.runPython('square(8)'));
-  };
-
 
   const loadCompiler = async () => {
     setCompiling(true);
@@ -145,7 +141,7 @@ const App = () => {
       }
     }
     setupDScompiler();
-  }, [loading]);
+  }, [loading, pyodide]);
 
   return (
     <div className="App">
@@ -199,10 +195,6 @@ const App = () => {
       </header>
     </div>
   );
-
-  function CompileSpinner() {
-    return <div className="compilespinner">Loading...</div>;
-  }
 }
 
 export default App;
