@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
+import {basicSetup, EditorView} from '@uiw/react-codemirror';
 import { globalCompletion, localCompletionSource, pyodide, pythonLanguage } from '@codemirror/lang-python';
 import { LanguageSupport } from '@codemirror/language';
+import * as themes from '@uiw/codemirror-themes-all';
+
 
 import ListGroup from "react-bootstrap/ListGroup";
 
@@ -35,16 +38,13 @@ const App = () => {
 
   function editorRefCallack(editor) {
     if (!editorRef.current && editor?.editor && editor?.state && editor?.view) {
-      
-      console.log(editor); 
-      editorRef.current = editor; 
+
+      console.log(editor);
+      editorRef.current = editor;
     }
   }
 
-  const runTestCode = () => {
-    console.log(editorRef)
-    editorRef.current.editor.markText({line:3})
-  }
+ 
 
   const [writeeditor, setwriteeditor] = useState('');
   const [readeditor, setreadeditor] = useState('');
@@ -191,93 +191,100 @@ const App = () => {
   return (
 
     <div className="App">
-      <Navbar expand="lg" className="bg-body-tertiary">
-        <Container>
-          <Navbar.Brand href="#home">Python Desynced Crosscompiler</Navbar.Brand>
+      <div className="d-flex flex-column min-vh-100">
+        <Navbar expand="lg" className="bg-body-tertiary">
+          <Container>
+            <Navbar.Brand href="#home">Python Desynced Crosscompiler</Navbar.Brand>
 
-          <Navbar.Toggle aria-controls="basic-navbar-nav" />
-          <Navbar.Collapse id="basic-navbar-nav">
-            <Nav className="me-auto">
-              <Nav.Link href="#home">Info</Nav.Link>
-              <Nav.Link href="https://github.com/vanweric/PythonToDesyncedCompiler" target="_blank">GitHub</Nav.Link>
-              <Nav.Link href="https://www.youtube.com/@VDubBuilds" target="_blank">YouTube</Nav.Link>
+            <Navbar.Toggle aria-controls="basic-navbar-nav" />
+            <Navbar.Collapse id="basic-navbar-nav">
+              <Nav className="me-auto">
+                <Nav.Link href="#home">Info</Nav.Link>
+                <Nav.Link href="https://github.com/vanweric/PythonToDesyncedCompiler" target="_blank">GitHub</Nav.Link>
+                <Nav.Link href="https://www.youtube.com/@VDubBuilds" target="_blank">YouTube</Nav.Link>
 
-              <NavDropdown title="Examples Go Here Instead??" id="basic-nav-dropdown">
-                <NavDropdown.Item href="#action/3.1">Action</NavDropdown.Item>
-                <NavDropdown.Item href="#action/3.2">
-                  Another action
-                </NavDropdown.Item>
-                <NavDropdown.Item href="#action/3.3">Something</NavDropdown.Item>
-                <NavDropdown.Divider />
-                <NavDropdown.Item href="#action/3.4">
-                  Separated link
-                </NavDropdown.Item>
-              </NavDropdown>
-            </Nav>
-          </Navbar.Collapse>
+                <NavDropdown title="Examples " id="basic-nav-dropdown">
+                  {
+                    examples.map((item, ix) => (
+                      <NavDropdown.Item action onClick={() => loadExample(item[1])} disabled={compiling} key={ix}>
+                        {item[0]}
+                      </NavDropdown.Item>
+                    ))
+                  }
+                  <NavDropdown.Divider />
+                  <NavDropdown.Item href="#action/3.4">
+                    Separated link
+                  </NavDropdown.Item>
+                </NavDropdown>
+              </Nav>
+
+              <Nav className="ms-auto">
+              <button variant="secondary"  disabled={compiling} onClick={runPythonCode}>
+                  {compiling ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" /> : null}
+                  {compiling ? 'Compiling...' : 'Copy'}
+                </button>
+
+                <button variant="secondary"  disabled={compiling} onClick={runPythonCode}>
+                  {compiling ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" /> : null}
+                  {compiling ? 'Compiling...' : 'Clear'}
+                </button>
+
+                <button variant="primary" className="me-2" disabled={compiling} onClick={runPythonCode}>
+                  {compiling ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" /> : null}
+                  {compiling ? 'Compiling...' : 'Compile'}
+                </button>
+              </Nav>
+            </Navbar.Collapse>
+          </Container>
+        </Navbar>
+
+        <Container className="flex-grow-1 my-4">
+        
+
+              <CodeMirror value={writeeditor}
+                className="cm-outer-container"
+                align="left"
+                onChange={onEditorTextChange}
+                ref={editorRefCallack}
+                //extensions={[python()]}
+                theme = {themes.githubLight}
+                extensions={ [
+                  new LanguageSupport(pythonLanguage, [
+                    pythonLanguage.data.of({ autocomplete: localCompletionSource }),
+                    pythonLanguage.data.of({ autocomplete: globalCompletion }),
+                    pythonLanguage.data.of({ autocomplete: myCompletions }),
+                  ]),
+                  EditorView.lineWrapping]
+                }
+                disabled={compiling} /
+              >
         </Container>
-      </Navbar>
 
-      <Container fluid="md">
-        <Row>
-          <Col>
-            <CodeMirror value={writeeditor}
-              height="400px"
-              align="left"
-              onChange={onEditorTextChange}
-              ref={editorRefCallack}
-              //extensions={[python()]}
-              extensions={
-                new LanguageSupport(pythonLanguage, [
-                  pythonLanguage.data.of({ autocomplete: localCompletionSource }),
-                  pythonLanguage.data.of({ autocomplete: globalCompletion }),
-                  pythonLanguage.data.of({ autocomplete: myCompletions }),
-                ])
-              }
-              disabled={compiling} /
-            >
-          </Col>
-          <Col md="auto">
-            Examples
-            <ListGroup>
-              {
-                examples.map((item, ix) => (
-                  <ListGroup.Item action onClick={() => loadExample(item[1])} disabled={compiling} key={ix}>
-                    {item[0]}
-                  </ListGroup.Item>
-                ))
-              }
-            </ListGroup>
-
-            <div style={{ margin: '10px' }} >
-              <button className="btn btn-primary" type="button" disabled={compiling} onClick={runPythonCode}>
-                {compiling ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" /> : null}
-                {compiling ? 'Compiling...' : 'Compile'}
-              </button>
-            </div> 
-            
-            <div style={{ margin: '10px' }} >
-              <button className="btn btn-primary" type="button"  onClick={runTestCode}>
-                TEST
-              </button>
-            </div>
-
-          </Col>
-        </Row>
-
-        <Row>
-        </Row>
-      </Container>
+        {output ? <OutputAlert /> : null}
 
 
 
-
-
-      {output ? <OutputAlert /> : null}
-
-      <header className="App-header">
-      </header>
+        <footer className="bg-light py-3 mt-auto">
+          <Container>
+            <p className="text-center mb-1">
+              Copyright © 2024 by Eric VanWyk
+            </p>
+            <p className="text-center small text-muted">
+              This compiler is freely available under the{' '}
+              <a
+                href="https://opensource.org/licenses/MIT"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                MIT License
+              </a>
+            </p>
+          </Container>
+        </footer>
+      </div>
     </div>
+
+    
   );
 }
 
