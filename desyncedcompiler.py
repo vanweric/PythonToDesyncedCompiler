@@ -75,6 +75,12 @@ def flatten_calls(tree):
             super().__init__()
             self.temp_count = 1
 
+        def visit_UnaryOp(self, node):
+            if isinstance(node.op, ast.Not):
+                operand = node.operand
+                operand.func.id = operand.func.id+'__NOT'
+                return self.visit(operand)
+
         def visit_Call(self, node):
             nodelist = []
             for i, arg in enumerate(node.args):
@@ -101,7 +107,6 @@ def flatten_calls(tree):
                                 targets = node.targets,
                                 args = [node.value],
                                 keywords=[])
-                ast.copy_location(call, node)
                 node.value = call
                 return node
             if isinstance(node.value, ast.Call):
@@ -114,6 +119,38 @@ def flatten_calls(tree):
                 ncalls = self.visit(node.value)
                 #ncalls[-1] = ast.Expr(value = ncalls[-1].value)
                 return ncalls
+
+
+    class WhilePatcher(ast.NodeTransformer):
+        '''
+        Desynced doesn't natively support "while" behavior.  
+        Specifically, only "Loop" instructions capture flow exit, but we want flow capture
+        coupled to generic conditional statements.  This patches in a dummy run-once loop:
+
+        while conditional:
+            body
+            
+        is translated to
+
+        ::loop_start::
+        if conditional:
+            while once:
+                body
+            goto ::loop_start::
+
+        The "goto" is added during flow control.
+        '''
+        def visit_While(self, node):
+            node.body.insert(0, ast.Call(
+                func=ast.Name(id='LoopRecipeIngredients', ctx=ast.Load()),
+                args=[ast.Constant(value='metalplate')]
+                ))
+            for i in range(1, len(node.body)):
+                node.body[i] = self.visit(node.body[i])
+            return node
+            
+    #whilepatch = WhilePatcher()
+    #tree = whilepatch.visit(tree)
 
     transformer = FlatteningTransformer()
     tree = transformer.visit(tree)
@@ -188,7 +225,7 @@ def convert_to_ds_call(tree):
 # Section 5: Labeling Pass
 
 def label_frames_vars(tree, debug=False):
-    allowed_names = 'ABCDEFGHIJKLMNOQRSTUVWXYZ' #don't allow P
+    allowed_names = 'ABCDEFGHIJKLMNOQRSTUVW' #don't allow P or past W
     
     class ParameterFinder(ast.NodeVisitor):
         def __init__(self, variables={}):
@@ -232,7 +269,10 @@ def label_frames_vars(tree, debug=False):
         existing_keys = list(mapping.keys())
         for key in existing_keys:
             if mapping[key] is None:
-                name = next((name for name in allowed_names if name not in mapping.values()))
+                name = next((name for name in allowed_names if name not in mapping.values()), None)
+                if name is None:
+                    raise SyntaxError("Too many registers used - Desynced supports up to 22 only")
+                        
                 mapping[key] = name
         return mapping 
 
@@ -289,84 +329,116 @@ def label_frames_vars(tree, debug=False):
 # Section 6: Flow Control
 
 def flow_control(tree):
-
-    def find_first_last_DS_Call(list):
-        class DSFinder(ast.NodeVisitor):
-            def __init__(self):
-                self.last=None
-                self.first= None
-    
-            def visit_DS_Call(self, node):
-    
-                self.last = node
-                if self.first is None:
-                    self.first = node
-    
-        finder = DSFinder()
-        for tree in list:
-            finder.visit(tree)
-        return finder.first, finder.last
-    
-    def flow_list(nodelist, exit=-1):
-        #myexit = find_first_last_DS_Call(nodelist)
+    def flow_list(nodelist, exit):
+        '''
+        Connects frames in sequence in a list.
+        All flow_ functions take an exit and return an entrance
+        '''
+        first_frame = None
         for item, next_item in zip(nodelist, nodelist[1:] + [None]):
-            lexit = exit if next_item is None else find_first_last_DS_Call([next_item])[0].frame
-            if isinstance(item, DS_Call):
-                item.next = {'next': lexit}
-            if isinstance(item, ast.While):
-                flow_While(item, lexit)
-            if isinstance(item, ast.If):
-                flow_If(item, lexit)
-            if isinstance(item, ast.For):
-                flow_For(item, lexit)
+            #lexit = exit if next_item is None else find_first_last_DS_Call([next_item])[0].frame
+            
+            next_frame_start = None
+            current_frame = None
+            match next_item:
+                case DS_Call():
+                    next_frame_start = next_item.frame
+                case None:
+                    # End of List
+                    next_frame_start = exit
+                case ast.While():
+                    next_frame_start = next_item.test[0].frame
+                case ast.For():
+                    next_frame_start = next_item.iter[0].frame
+                case ast.If():
+                    next_frame_start = next_item.test[0].frame
+                case _:
+                    print(type(item))
+                    print("OHNO")
+
+            match item:
+                case DS_Call():
+                    current_frame = item.frame
+                    item.next = {'next': next_frame_start}
+                case ast.While():
+                    current_frame = flow_While(item, next_frame_start)
+                case ast.For():
+                    current_frame = flow_For(item, next_frame_start)
+                case ast.If():
+                    current_frame = flow_If(item, next_frame_start)
+                case ast.Pass():
+                    return exit
+                    
+                case _:
+                    print("OHNO")
+
+            if first_frame is None: first_frame = current_frame
+
+        return first_frame
+            
+        #view_flow_list(nodelist, "after")
     
-    def flow_While(node, exit=-1):
-        flow_list(node.test)
-        flow_list(node.body)
-        body_first, body_last = find_first_last_DS_Call(node.body)
-        test_first, test_last = find_first_last_DS_Call(node.test)
-    
-        test_last.next = {'next': body_first.frame, 'exit': exit}
-        body_last.next = {'next': test_first.frame,}
-    
-    def flow_If(node, exit=-1):
-        flow_list(node.test)
-        flow_list(node.body)
-        flow_list(node.orelse)
-        body_first, body_last = find_first_last_DS_Call(node.body)
-        test_first, test_last = find_first_last_DS_Call(node.test)
-        orelse_first, orelse_last = find_first_last_DS_Call(node.orelse)
-    
-        test_last.next = {'next': exit if body_first is None else body_first.frame,
-                          'else': exit if orelse_first is None else orelse_first.frame}
-        if body_last:
-            body_last.next = {'next': exit}
-        if orelse_last:
-            orelse_last.next = {'next':exit}
-    
-    
-    def flow_For(node, exit=-1):
+    def flow_While(node, exit):
+        test_first = flow_list(node.test, exit)
+        body_first = flow_list(node.body, test_first)
+        node.test[-1].next = {'next': body_first, 'exit': exit}
+     
+        return test_first
+        
+    def flow_For(node, exit):
         target = node.target
         ''' The unparser needs the for loop to still have a valid target '''
         node.target = ast.Name(id='_', ctx=ast.Store())
 
-        flow_list(node.body)
-        flow_list(node.iter)
-        body_first, body_last = find_first_last_DS_Call(node.body)
-        iter_first, iter_last = find_first_last_DS_Call(node.iter)
+        #Special Case - Loop instructions create a stack frame.
+        test_first = flow_list(node.iter, exit)
+        body_first = flow_list(node.body, -1)
+
     
-        iter_last.next = {'next': body_first.frame, 
-                          'exit': exit}
-        body_last.next= {'next': False}
+        node.iter[-1].next = {'next': body_first, 
+                              'exit': exit}
+        
         if isinstance(target, list):
-            iter_last.targets = target
+            node.iter[-1].targets = target
         else:
-            iter_last.targets = [target]
+            node.iter[-1].targets = [target]
+    
+    def flow_If(node, exit):
+        test_first = flow_list(node.test, exit)
+        body_first = flow_list(node.body, exit)
+        node.test[-1].next = {'next': body_first, 'exit': exit}
+        
+        head = node.orelse  #Guaranteed to be an "If()"
+        while(head):
+            match head:
+                case []:
+                    print("Did we ever get here? []")
+                    head = None
+                                        
+                case [ast.If(test=ast.Constant()) as first, *rest]:
+                    label = head[0].test.value
+                    body_first = flow_list(head[0].body, exit)
+                    head = head[0].orelse
+                    node.test[-1].next[label] = body_first
+                                        
+                case [ast.Pass() as first, *rest]:
+                    print("passing")
+                    pass
+                    
+                case _:
+                    label = 'exit'
+                    body_first = flow_list(head, exit)
+                    head = None
+                    node.test[-1].next[label] = body_first
+        
+        return test_first
+
+
             
     # this is a real bad hack and will need to be fixed to support nested function calls.
     if isinstance(tree.body[0], ast.FunctionDef):
-        return flow_list(tree.body[0].body)
-    return flow_list(tree.body)
+        return flow_list(tree.body[0].body, -1)
+    return flow_list(tree.body, -1)
 
 # Section 7: Import Desynced Ops
 
