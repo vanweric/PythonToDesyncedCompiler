@@ -2,7 +2,7 @@
   "name": "desynced-compiler",
   "version": "0.2.0",
   "private": true,
-  "homepage": "https://vanweric.github.io/PythonToDesyncedCompiler",
+  "NOT homepage": "https://vanweric.github.io/PythonToDesyncedCompiler",
   "dependencies": {
     "@codemirror/lang-python": "6.1.*",
     "@testing-library/jest-dom": "^5.17.0",
