@@ -1,15 +1,15 @@
 {
   "files": {
     "main.css": "/PythonToDesyncedCompiler/static/css/main.f9407942.css",
-    "main.js": "/PythonToDesyncedCompiler/static/js/main.b18b8a09.js",
+    "main.js": "/PythonToDesyncedCompiler/static/js/main.51ff202e.js",
     "static/js/453.83878a4b.chunk.js": "/PythonToDesyncedCompiler/static/js/453.83878a4b.chunk.js",
     "index.html": "/PythonToDesyncedCompiler/index.html",
     "main.f9407942.css.map": "/PythonToDesyncedCompiler/static/css/main.f9407942.css.map",
-    "main.b18b8a09.js.map": "/PythonToDesyncedCompiler/static/js/main.b18b8a09.js.map",
+    "main.51ff202e.js.map": "/PythonToDesyncedCompiler/static/js/main.51ff202e.js.map",
     "453.83878a4b.chunk.js.map": "/PythonToDesyncedCompiler/static/js/453.83878a4b.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.f9407942.css",
-    "static/js/main.b18b8a09.js"
+    "static/js/main.51ff202e.js"
   ]
 }
