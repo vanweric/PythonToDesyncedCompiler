@@ -7,6 +7,7 @@ import * as themes from '@uiw/codemirror-themes-all';
 
 
 import ListGroup from "react-bootstrap/ListGroup";
+import Button from 'react-bootstrap/Button';
 
 import Container from 'react-bootstrap/Container';
 import Row from 'react-bootstrap/Row';
@@ -22,6 +23,7 @@ import desyncedExport from './desyncedexport.json'
 //import desyncedcompiler from './desyncedcompiler.py'
 import { ObjectToDesyncedString } from './dsconvert'
 
+import copy from "copy-to-clipboard";
 import './App.css';
 
 import usePyodide from './usePyodide';
@@ -172,6 +174,15 @@ const App = () => {
     setupDScompiler();
   }, [loading, pyodide]);
 
+  const handleCopy = () => {
+    copy(output)
+  }
+
+  const handleClear = () => {
+    setreadeditor("");
+    setwriteeditor("");
+  }
+
   const OutputAlert = () => (
     <Alert variant={compilationSuccess ? 'success' : 'danger'}
       style={{
@@ -219,31 +230,32 @@ const App = () => {
               </Nav>
 
               <Nav className="ms-auto">
-              <button variant="secondary"  disabled={compiling} onClick={runPythonCode}>
+              <Button variant="secondary"  disabled={!compilationSuccess} onClick={handleCopy} style={{ marginRight: '5px' }}>
                   {compiling ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" /> : null}
                   {compiling ? 'Compiling...' : 'Copy'}
-                </button>
+                </Button>
 
-                <button variant="secondary"  disabled={compiling} onClick={runPythonCode}>
+                <Button variant="secondary"  disabled={compiling} onClick={handleClear} style={{ marginRight: '5px' }}>
                   {compiling ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" /> : null}
                   {compiling ? 'Compiling...' : 'Clear'}
-                </button>
+                </Button>
 
-                <button variant="primary" className="me-2" disabled={compiling} onClick={runPythonCode}>
+                <Button variant="primary"  disabled={compiling} onClick={runPythonCode} style={{ marginRight: '5px' }}>
                   {compiling ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" /> : null}
                   {compiling ? 'Compiling...' : 'Compile'}
-                </button>
+                </Button>
               </Nav>
             </Navbar.Collapse>
           </Container>
         </Navbar>
 
-        <Container className="flex-grow-1 my-4">
-        
+        <Container fluid="xl">
+        <div className="p-4 bg-white border rounded shadow-sm" overflow-y="auto">
 
               <CodeMirror value={writeeditor}
                 className="cm-outer-container"
                 align="left"
+                height="400px"
                 onChange={onEditorTextChange}
                 ref={editorRefCallack}
                 //extensions={[python()]}
@@ -258,6 +270,8 @@ const App = () => {
                 }
                 disabled={compiling} /
               >
+                  </div>
+              
         </Container>
 
         {output ? <OutputAlert /> : null}
