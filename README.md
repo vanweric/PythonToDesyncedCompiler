@@ -4,6 +4,8 @@ I've been playing [Desynced](https://www.desyncedgame.com/), a base building vid
 
 # How to Use
 ## Online
+The Online Version is [here](https://vanweric.github.io/PythonToDesyncedCompiler/)
+
 This binder link will open a Jupyter environment with everything ready to go:  
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/vanweric/PythonToDesyncedCompiler/master?labpath=PythonToDesynced.ipynb)
 

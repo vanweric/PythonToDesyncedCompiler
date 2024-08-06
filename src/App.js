@@ -203,7 +203,7 @@ const App = () => {
 
     <div className="App">
       <div className="d-flex flex-column min-vh-100">
-        <Navbar expand="lg" className="bg-body-tertiary">
+        <Navbar expand="md" className="bg-body-tertiary">
           <Container>
             <Navbar.Brand href="#home">Python Desynced Crosscompiler</Navbar.Brand>
 
@@ -223,8 +223,8 @@ const App = () => {
                     ))
                   }
                   <NavDropdown.Divider />
-                  <NavDropdown.Item href="#action/3.4">
-                    Separated link
+                  <NavDropdown.Item href="https://github.com/vanweric/PythonToDesyncedCompiler/tree/main/public/examples" target="_blank">
+                    Examples Folder
                   </NavDropdown.Item>
                 </NavDropdown>
               </Nav>
