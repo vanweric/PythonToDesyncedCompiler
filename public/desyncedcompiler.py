@@ -229,6 +229,7 @@ def convert_to_ds_call(tree):
 
 def label_frames_vars(tree, debug=False):
     allowed_names = 'ABCDEFGHIJKLMNOQRSTUVW' #don't allow P or past W
+    special_names = ['Goto','Store','Visual','Signal']
     
     class ParameterFinder(ast.NodeVisitor):
         def __init__(self, variables={}):
@@ -259,7 +260,7 @@ def label_frames_vars(tree, debug=False):
 
         def visit_Name(self, node):
             if node.id not in self.variables.values():
-                if node.id in allowed_names:
+                if node.id in allowed_names or node.id in special_names:
                     self.variables.setdefault(node.id,node.id)
                 else:
                     self.variables.setdefault(node.id,None)
