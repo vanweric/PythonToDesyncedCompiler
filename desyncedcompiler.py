@@ -193,12 +193,15 @@ def convert_to_ds_call(tree):
         def visit_Call(self, node, target=None):
             if target:
                 node.targets=[target]
-            return [DS_Call( targets=[target], args=node.args, op=node.func.id)]
+            dscall =DS_Call( targets=[target], args=node.args, op=node.func.id) 
+            ast.copy_location(dscall, node)
+            return [dscall]
 
         def visit_Assign(self, node):
             if isinstance(node.value, (ast.Name, ast.Constant, ast.Tuple)):
                 # Special case for a bare Assignment - this is a Copy function, which is 'set_reg' internally
                 new_node = DS_Call(targets = node.targets, args = [node.value], op = 'Copy')
+                ast.copy_location(new_node, node)
                 new_node = self.visit(new_node)
                 return new_node
             nodelist = self.visit_Call(node.value)
@@ -226,6 +229,7 @@ def convert_to_ds_call(tree):
 
 def label_frames_vars(tree, debug=False):
     allowed_names = 'ABCDEFGHIJKLMNOQRSTUVW' #don't allow P or past W
+    special_names = ['Goto','Store','Visual','Signal']
     
     class ParameterFinder(ast.NodeVisitor):
         def __init__(self, variables={}):
@@ -256,7 +260,7 @@ def label_frames_vars(tree, debug=False):
 
         def visit_Name(self, node):
             if node.id not in self.variables.values():
-                if node.id in allowed_names:
+                if node.id in allowed_names or node.id in special_names:
                     self.variables.setdefault(node.id,node.id)
                 else:
                     self.variables.setdefault(node.id,None)
@@ -423,6 +427,7 @@ def flow_control(tree):
                                         
                 case [ast.Pass() as first, *rest]:
                     print("passing")
+                    head=None
                     pass
                     
                 case _:
@@ -536,7 +541,9 @@ def create_dso_from_ast(tree, debug=False):
                 return False
 
         def visit_DS_Call(self, node):
-            op = ds_ops[node.op]
+            op = ds_ops.get(node.op, None)
+            if not op:
+                raise SyntaxErrorFromAST(f"Unknown Operation: {node.op=}", node)
             res={}
             res['op'] = op['op']
             if node.next['next'] != node.frame+1:
@@ -688,10 +695,11 @@ def python_to_desynced(code, environment=None):
         
 def python_to_desynced_pyodide(code):
     try: 
-        
         if callable(code):
             code = inspect.getsource(code)
         tree = ast.parse(code, type_comments=False)
+        if not tree.body:
+            raise SyntaxError("No Code Found")
         tree = replace_binops_with_functions(tree)
         tree = flatten_calls(tree)
         tree = convert_to_ds_call(tree)
