@@ -52,10 +52,18 @@ def replace_binops_with_functions(tree):
                 return node
 
         def visit_Compare(self, node):
+            compare_map = {
+                'Lt':'Smaller',
+                'LtE':'Smaller__Equal',
+                'Gt':'Larger',
+                'GtE':'Larger__Equal',
+                'Eq':'Equal',
+                'NotEq':'Smaller__Larger',
+            }
             compare_type = ast.dump(node.ops[0])[:-2]
             # TODO Make type finding more robust. 
             new_node = ast.Call(
-                func = ast.Name(id="CompareNumbers_"+compare_type, ctx=ast.Load()),
+                func = ast.Name(id="CompareNumber__"+compare_map[compare_type], ctx=ast.Load()),
                 args = [node.left, node.comparators[0]],
                 keywords = [],
                 starargs=None,
@@ -229,7 +237,7 @@ def convert_to_ds_call(tree):
 
 def label_frames_vars(tree, debug=False):
     allowed_names = 'ABCDEFGHIJKLMNOQRSTUVW' #don't allow P or past W
-    special_names = ['Goto','Store','Visual','Signal']
+    special_names = ['Goto','Store','Visual','Signal', '_']
     
     class ParameterFinder(ast.NodeVisitor):
         def __init__(self, variables={}):
@@ -363,7 +371,7 @@ def flow_control(tree):
             match item:
                 case DS_Call():
                     current_frame = item.frame
-                    item.next = {'next': next_frame_start}
+                    item.next = {'all': next_frame_start}
                 case ast.While():
                     current_frame = flow_While(item, next_frame_start)
                 case ast.For():
@@ -372,8 +380,12 @@ def flow_control(tree):
                     current_frame = flow_If(item, next_frame_start)
                 case ast.Pass():
                     return exit
+
+                case ast.FunctionDef():
+                    raise SyntaxErrorFromAST("Subroutines and Multiple Function Definitions not supported", item)
                     
                 case _:
+                    print(type(item))
                     print("OHNO")
 
             if first_frame is None: first_frame = current_frame
@@ -385,7 +397,7 @@ def flow_control(tree):
     def flow_While(node, exit):
         test_first = flow_list(node.test, exit)
         body_first = flow_list(node.body, test_first)
-        node.test[-1].next = {'next': body_first, 'exit': exit}
+        node.test[-1].next = {'true': body_first, 'false': exit}
      
         return test_first
         
@@ -399,18 +411,20 @@ def flow_control(tree):
         body_first = flow_list(node.body, -1)
 
     
-        node.iter[-1].next = {'next': body_first, 
-                              'exit': exit}
+        node.iter[-1].next = {'true': body_first, 
+                              'done': exit}
         
         if isinstance(target, list):
             node.iter[-1].targets = target
         else:
             node.iter[-1].targets = [target]
+
+        return test_first
     
     def flow_If(node, exit):
         test_first = flow_list(node.test, exit)
         body_first = flow_list(node.body, exit)
-        node.test[-1].next = {'next': body_first, 'exit': exit}
+        node.test[-1].next = {'true': body_first, 'false': exit}
         
         head = node.orelse  #Guaranteed to be an "If()"
         while(head):
@@ -431,7 +445,7 @@ def flow_control(tree):
                     pass
                     
                 case _:
-                    label = 'exit'
+                    label = 'false'
                     body_first = flow_list(head, exit)
                     head = None
                     node.test[-1].next[label] = body_first
@@ -460,7 +474,8 @@ class desynced_ops:
             raw_import = jsonfile["instructions"]
 
         if raw_import:
-            cls._instructions =  {cls.to_function_name(v['name']):{**v, 'op':k} for k,v in raw_import.items() if 'name' in v.keys()}
+            cls._instructions =  {cls.to_function_name(v['name']):{**v, 'op':k} 
+                                  for k,v in raw_import.items() if 'name' in v.keys()}
             print("instructions initialized")
 
     @classmethod
@@ -535,19 +550,133 @@ def create_dso_from_ast(tree, debug=False):
         def translate_exec(self, next, exec_ix):
             # This is just scaffolding at the moment
             # Needs a ton of work...
+            print("translate exec")
+            print(next)
+            print(exec_ix)
+            print("")
+            
             try:
                 return list(next.values())[exec_ix]+1
             except IndexError:
                 return False
 
+        def execs_from_call(self, node, op, parameters):
+            '''
+            Identify all flow out paths
+
+            Match flow paths:
+                'all':   All out paths follow this 
+                'false': Remaining out paths follow this
+                'done':  Loop exit
+                'true':  Top-most exec
+                'not':   Flip polarity
+                str:     Explicit case-free match
+                tuple:   Explicit match all within tuple
+
+            Remove Next if it is unused or equal to the next frame
+            '''            
+            print('\nexecs from call')
+            exec_arg = op.get('exec_arg', None)
+            op_args = op.get('args', [])
+
+            # info from the op itself
+            args = {}
+            if exec_arg is None:
+                args['next']= 'next'
+            elif exec_arg:
+                print('...', exec_arg)
+                args[exec_arg[1] ]= 'next'
+                
+            if op_args:
+                for i, arg in enumerate(op_args):
+                    print(i, arg)
+                    if arg[0] == 'exec':
+                        args[arg[1].lower()]= i
+
+            parameters = [p.lower() for p in parameters]
+
+            # info from the flow controller
+            flows = {}
+            for key, value in node.next.items():
+                flows[key.lower()] = value+1 if value >= 0 else value
+                        
+            processed = {}
+            
+            print('flows\t', flows)
+            print('args\t',  args)
+            print('params\t', parameters)
+            print('-----------------')
+
+            #args are one time use
+            def bind_and_delete(arg_key, flow_target):
+                    print(f"Binding {arg_key=} to {flow_target=}")
+                    processed[args[arg_key]] = flow_target
+                    del args[arg_key]
+            
+            print('\tall')
+            if 'all' in flows:
+                all_target = flows['all']
+                processed = {value: all_target for key, value in args.items()}
+                args = {}
+                flows = {}
+                
+            print('\tparameters')
+            # flow parameter as a switch target is highest priority
+            if 'true' in flows:
+                flow_target = flows['true']
+                for param in parameters:
+                    for arg in list(args.keys()):
+                        if param != 'not' and param in arg:
+                            bind_and_delete(arg, flow_target)
+                            if 'true' in flows: del flows['true']
+                
+            print('\tswitchtargets')
+            # switch targets are second highest priority
+            for key in list(args.keys()):
+                if key not in ['all','exit','true','not']:
+                    if key in flows:
+                        bind_and_delete(key, flows[key])
+                        del flows[key]
+            print('\ttrue')
+            if 'true' in flows:
+                target_arg = next(iter(args))
+                print("True Target Arg is ", target_arg)
+                bind_and_delete(target_arg, flows['true'])
+                del flows['true']
+
+            print('\tfalse')
+            if 'false' in flows and args:
+                for key in list(args.keys()):
+                    bind_and_delete(key, flows['false'])
+                del flows['false']
+
+            ''' "Not" flips processed flows if there are only two outlets'''
+            if 'not' in parameters:
+                outlets = list({v for v in processed.values()})
+                if len(outlets) != 2:
+                    raise SyntaxErrorFromAST("NOT statements can only handle exactly two flow outlets", node)
+                outlet_remap = {outlets[0]:outlets[1], outlets[1]:outlets[0]}
+                processed = {k:outlet_remap[v] for k,v in processed.items()}
+
+            print('proc\t', processed)
+            print('flows\t', flows)
+            print('args\t',  args)
+
+            #remove flows that lead to the next frame, these are implied.
+            processed = {k:v for k,v in processed.items() if v!= node.frame+1}
+            print('proc\t', processed)
+            
+            return processed
+            
+
         def visit_DS_Call(self, node):
-            op = ds_ops.get(node.op, None)
+            opname, *parameters = node.op.split('__')
+            op = ds_ops.get(opname, None)
             if not op:
                 raise SyntaxErrorFromAST(f"Unknown Operation: {node.op=}", node)
             res={}
             res['op'] = op['op']
-            if node.next['next'] != node.frame+1:
-                res['next'] = node.next['next']
+
             target_ix=0
             arg_ix=0
             exec_ix=1
@@ -561,10 +690,11 @@ def create_dso_from_ast(tree, debug=False):
                     if arg[0] == 'in':
                         res[str(i)] = self.translate_register_or_value(node.args,arg_ix)
                         arg_ix +=1
-                    if arg[0] == 'exec':
-                        res[str(i)]= self.translate_exec(node.next, exec_ix)
-                        exec_ix+=1
-                        
+                    #if arg[0] == 'exec':
+                    #    res[str(i)]= self.translate_exec(node.next, exec_ix)
+                    #    exec_ix+=1
+            res.update(self.execs_from_call(node, op, parameters))
+                       
             self.dso[str(node.frame)] = res
 
         def visit_arg(self, node):
@@ -575,10 +705,17 @@ def create_dso_from_ast(tree, debug=False):
             self.parameters[parameter_ix]=name
             
         def parameters_block(self):
+            ''' Parameter Block is a list of either True (included), False (Ignored) or a String (Name the parameter) '''
             if len(self.parameters):
-                pblock = [self.parameters.get(i+1, False) for i in range(max(self.parameters.keys()))]
+                print("self.parameters ", self.parameters)
+                pnames = [self.parameters.get(i+1, False) for i in range(max(self.parameters.keys()))]
+                pnames = [True if p== 'P'+str(i+1) else p for i, p in enumerate(pnames)]
+                pblock = [i in self.parameters.keys() for i in range(max(self.parameters.keys()))]
+                
+                print("pblock ", pblock)
+                print("pnames ", pnames)
                 self.dso["parameters"] = pblock
-
+                self.dso["pnames"] = pnames
         def name_block(self, tree):
             try:
                 name = tree.body[0].name
