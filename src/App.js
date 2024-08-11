@@ -210,7 +210,8 @@ const App = () => {
             <Navbar.Toggle aria-controls="basic-navbar-nav" />
             <Navbar.Collapse id="basic-navbar-nav">
               <Nav className="me-auto">
-                <Nav.Link href="#home">Info</Nav.Link>
+              <Nav.Link href="https://stagegames.github.io/DesyncedJavaScriptUtils/" target="_blank">Disassembler</Nav.Link>
+              <Nav.Link href="https://github.com/vanweric/PythonToDesyncedCompiler/blob/main/public/Info.md" target="_blank">Info</Nav.Link>
                 <Nav.Link href="https://github.com/vanweric/PythonToDesyncedCompiler" target="_blank">GitHub</Nav.Link>
                 <Nav.Link href="https://www.youtube.com/@VDubBuilds" target="_blank">YouTube</Nav.Link>
 
