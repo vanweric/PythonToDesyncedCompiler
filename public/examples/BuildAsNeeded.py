@@ -1,9 +1,18 @@
-while CompareNumber(GetFromComponent("c_assembler",1),0):
-	P1=1
+def BuildAsNeeded(construction, tower, ingredient, needed):
+  '''
+  Looks for construction sites (via the Radar Tower) that are missing items
+  Checks how many are needed vs how many are already present 
+  Builds if needed.
+  '''
 
-P1 = GetFromComponent("Robotic", 2)
-if CanProduce(P1):
-    P2 = FactionItemAmount(P1)
-    P3 = P1-P2
-    if CompareNumber(P3,0):
-        SetToComponent(P3, "c_assembler",1)
+  # This loop busy waits while the assembler is in use.
+  while GetFromComponent("c_assembler",1)>0:
+    pass
+
+  for tower, construction in LoopSignalMatch( "v_construction"):
+    for ingredient in LoopRecipeIngredients(construction):
+      # Note: CanProduce has it's flow outputs flipped from 90% of instructions :-(
+      if not CanProduce(ingredient):
+        needed = ingredient - FactionItemAmount(ingredient)
+        if needed > 0:
+          SetToComponent(needed, "c_assembler", 1)

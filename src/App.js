@@ -54,7 +54,6 @@ const App = () => {
   const [compiling, setCompiling] = useState(false);
 
   const examples = [
-    ["Simple Test", "simple.py"],
     ["Recycle Bot", "Roomba.py"],
     ["Recycle Hub", "RecycleHub.py"],
     ["Radar Tower", "RadarTower.py"],
@@ -67,19 +66,6 @@ const App = () => {
     // Lower-case the first letter
     return cleanedString;//.charAt(0).toLowerCase() + cleanedString.slice(1);
   };
-
-
-
-  // Completions:
-  // N  Logistics Flags: logistics options 
-  // Y  Values:          Filterable values from the Information tab
-  // N  Frames: 
-  // Y  Components:     Mountable Components
-  // Y  Items:          
-  // N  Visuals:        Tiles
-  // Y  Instructions:   Behavioral instructions
-  // N  Techs:          Technlogy names
-  // N  Update Mapping: Internal versioning patches?
 
   const instruction_completions =
     Object.keys(desyncedExport["instructions"]).map((key) => {
@@ -218,7 +204,7 @@ const App = () => {
                 <Nav.Link href="https://github.com/vanweric/PythonToDesyncedCompiler" target="_blank">GitHub</Nav.Link>
                 <Nav.Link href="https://www.youtube.com/@VDubBuilds" target="_blank">YouTube</Nav.Link>
 
-                <NavDropdown title="Examples " id="basic-nav-dropdown">
+                <NavDropdown disabled={compiling} title="Examples " id="basic-nav-dropdown">
                   {
                     examples.map((item, ix) => (
                       <NavDropdown.Item action onClick={() => loadExample(item[1])} disabled={compiling} key={ix}>
