@@ -547,20 +547,8 @@ def create_dso_from_ast(tree, debug=False):
                     if isinstance(val.value[0], int) and isinstance(val.value[1], str):
                         return {"id": val.value[1], "num": val.value[0]}
 
-        def translate_exec(self, next, exec_ix):
-            # This is just scaffolding at the moment
-            # Needs a ton of work...
-            print("translate exec")
-            print(next)
-            print(exec_ix)
-            print("")
-            
-            try:
-                return list(next.values())[exec_ix]+1
-            except IndexError:
-                return False
 
-        def execs_from_call(self, node, op, parameters):
+        def execs_from_call(self, node, op, parameters, debug=False):
             '''
             Identify all flow out paths
 
@@ -575,7 +563,6 @@ def create_dso_from_ast(tree, debug=False):
 
             Remove Next if it is unused or equal to the next frame
             '''            
-            print('\nexecs from call')
             exec_arg = op.get('exec_arg', None)
             op_args = op.get('args', [])
 
@@ -584,12 +571,10 @@ def create_dso_from_ast(tree, debug=False):
             if exec_arg is None:
                 args['next']= 'next'
             elif exec_arg:
-                print('...', exec_arg)
                 args[exec_arg[1] ]= 'next'
                 
             if op_args:
                 for i, arg in enumerate(op_args):
-                    print(i, arg)
                     if arg[0] == 'exec':
                         args[arg[1].lower()]= i
 
@@ -601,26 +586,25 @@ def create_dso_from_ast(tree, debug=False):
                 flows[key.lower()] = value+1 if value >= 0 else value
                         
             processed = {}
-            
-            print('flows\t', flows)
-            print('args\t',  args)
-            print('params\t', parameters)
-            print('-----------------')
+            if (debug):
+                print('flows\t', flows)
+                print('args\t',  args)
+                print('params\t', parameters)
+                
 
             #args are one time use
             def bind_and_delete(arg_key, flow_target):
-                    print(f"Binding {arg_key=} to {flow_target=}")
+                    if (debug): 
+                        print(f"Binding {arg_key=} to {flow_target=}")
                     processed[args[arg_key]] = flow_target
                     del args[arg_key]
             
-            print('\tall')
             if 'all' in flows:
                 all_target = flows['all']
                 processed = {value: all_target for key, value in args.items()}
                 args = {}
                 flows = {}
                 
-            print('\tparameters')
             # flow parameter as a switch target is highest priority
             if 'true' in flows:
                 flow_target = flows['true']
@@ -630,21 +614,19 @@ def create_dso_from_ast(tree, debug=False):
                             bind_and_delete(arg, flow_target)
                             if 'true' in flows: del flows['true']
                 
-            print('\tswitchtargets')
             # switch targets are second highest priority
             for key in list(args.keys()):
                 if key not in ['all','exit','true','not']:
                     if key in flows:
                         bind_and_delete(key, flows[key])
                         del flows[key]
-            print('\ttrue')
+
             if 'true' in flows:
                 target_arg = next(iter(args))
                 print("True Target Arg is ", target_arg)
                 bind_and_delete(target_arg, flows['true'])
                 del flows['true']
 
-            print('\tfalse')
             if 'false' in flows and args:
                 for key in list(args.keys()):
                     bind_and_delete(key, flows['false'])
@@ -657,14 +639,15 @@ def create_dso_from_ast(tree, debug=False):
                     raise SyntaxErrorFromAST("NOT statements can only handle exactly two flow outlets", node)
                 outlet_remap = {outlets[0]:outlets[1], outlets[1]:outlets[0]}
                 processed = {k:outlet_remap[v] for k,v in processed.items()}
-
-            print('proc\t', processed)
-            print('flows\t', flows)
-            print('args\t',  args)
+            if (debug): 
+                print('proc\t', processed)
+                print('flows\t', flows)
+                print('args\t',  args)
 
             #remove flows that lead to the next frame, these are implied.
-            processed = {k:v for k,v in processed.items() if v!= node.frame+1}
-            print('proc\t', processed)
+            # Currently bugged with nested loops going backwards one extra frame.
+            # Disable for now as it is just space optimization.
+            ###processed = {k:v for k,v in processed.items() if v!= node.frame+1}
             
             return processed
             
@@ -690,9 +673,7 @@ def create_dso_from_ast(tree, debug=False):
                     if arg[0] == 'in':
                         res[str(i)] = self.translate_register_or_value(node.args,arg_ix)
                         arg_ix +=1
-                    #if arg[0] == 'exec':
-                    #    res[str(i)]= self.translate_exec(node.next, exec_ix)
-                    #    exec_ix+=1
+
             res.update(self.execs_from_call(node, op, parameters))
                        
             self.dso[str(node.frame)] = res

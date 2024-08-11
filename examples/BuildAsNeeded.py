@@ -7,7 +7,7 @@ def BuildAsNeeded(construction, tower, ingredient, needed):
   	    pass
 
     for tower, construction in LoopSignalMatch( "v_construction"):
-        for ingredient in LoopRecipeIngredients(entity):
+        for ingredient in LoopRecipeIngredients(construction):
             if not CanProduce(ingredient):
                 needed = ingredient - FactionItemAmount(ingredient)
                 if needed > 0:
