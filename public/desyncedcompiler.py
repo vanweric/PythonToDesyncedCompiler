@@ -829,6 +829,9 @@ def python_to_desynced_pyodide(code):
         
     except SyntaxError as error:
         return json.dumps([False, error.msg+'\n Line Number '+str(error.lineno)])
+    
+    except Exception as error:
+        return json.dumps([False, "Uncaught exception!\nThis may be a bug in the compiler.  Please report it via Github\n\n"+str(error)])
         
 
 '''

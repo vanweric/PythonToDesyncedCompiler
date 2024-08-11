@@ -84,7 +84,7 @@ const App = () => {
     Object.keys(desyncedExport[category]).map((key) => {
       if (desyncedExport[category][key])
         return {
-          label: String(key),
+          label: String("\""+key+"\""),
           detail: String(desyncedExport[category][key]["name"]),
           type: "constant",
         }
