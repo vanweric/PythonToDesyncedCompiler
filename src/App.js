@@ -68,6 +68,19 @@ const App = () => {
     return cleanedString;//.charAt(0).toLowerCase() + cleanedString.slice(1);
   };
 
+
+
+  // Completions:
+  // N  Logistics Flags: logistics options 
+  // Y  Values:          Filterable values from the Information tab
+  // N  Frames: 
+  // Y  Components:     Mountable Components
+  // Y  Items:          
+  // N  Visuals:        Tiles
+  // Y  Instructions:   Behavioral instructions
+  // N  Techs:          Technlogy names
+  // N  Update Mapping: Internal versioning patches?
+
   const instruction_completions =
     Object.keys(desyncedExport["instructions"]).map((key) => {
       if (desyncedExport.instructions[key]["name"])
@@ -80,29 +93,19 @@ const App = () => {
     }
     ).filter(Boolean);
 
-  const constants_completions =
-    Object.keys(desyncedExport["items"]).map((key) => {
-      if (desyncedExport.items[key])
+    const constants_completions =
+    ["values", "components", "items"].flatMap((category) =>
+    Object.keys(desyncedExport[category]).map((key) => {
+      if (desyncedExport[category][key])
         return {
           label: String(key),
-          detail: String(desyncedExport.items[key]["name"]),
-          type: "keyword",
+          detail: String(desyncedExport[category][key]["name"]),
+          type: "constant",
         }
       return false;
-    }
+    })
     ).filter(Boolean);
 
-  const components_completions =
-    Object.keys(desyncedExport["components"]).map((key) => {
-      if (desyncedExport.components[key])
-        return {
-          label: String(key),
-          detail: String(desyncedExport.components[key]["name"]),
-          type: "keyword",
-        }
-      return false;
-    }
-    ).filter(Boolean);
 
   const myCompletions = function (context) {
     let word = context.matchBefore(/\w*/)
@@ -110,7 +113,7 @@ const App = () => {
       return null
     return {
       from: word.from,
-      options: [...instruction_completions, ...components_completions, ...constants_completions]
+      options: [...instruction_completions, ...constants_completions]
     }
   };
 
