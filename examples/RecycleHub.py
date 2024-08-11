@@ -1,9 +1,11 @@
 def RecycleHub():
+    '''
+    Storage Minder for accepting recycled materials.
+    Broadcasts GREEN if it has space to accept items.    
+    '''
     WaitTicks(5)
-    for A,_ in LoopEntitiesRange(10, "v_construction"):
-        for B in LoopRecipeIngredients(A):
-            OrderTransferTo(A,B)
     OrderToSharedStorage()
+    # Radio Receiver is an arbitrary stack 1 item to test for space
     if CheckSpaceForItem("c_radio_receiver"):
         Signal = "v_color_green"
     else:
