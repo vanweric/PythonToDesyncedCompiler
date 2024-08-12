@@ -2,7 +2,6 @@ import json
 import ast
 import inspect
 
-
 def SyntaxErrorFromAST(message, node):
     return SyntaxError(message, (None, node.lineno, node.col_offset, None))
 
@@ -21,7 +20,7 @@ def replace_binops_with_functions(tree):
                 #self.generic_visit(node)
                 new_node = ast.Call(
                     func=ast.Name(id=self.binop_map[type(node.op)], ctx=ast.Load()),
-                    args=[node.left, node.right],
+                    args=[self.visit(node.left), self.visit(node.right)],
                     keywords=[],
                     starargs=None,
                     kwargs=None
@@ -29,6 +28,15 @@ def replace_binops_with_functions(tree):
                 new_node=self.visit(new_node)
                 ast.copy_location(new_node, node)
                 return new_node
+            else:
+                return node
+
+        def visit_UnaryOp(self, node):
+            # Allow negative numbers
+            if isinstance(node.op, ast.USub):
+                print("usubbing")
+                node.operand.value *= -1
+                return node.operand
             else:
                 return node
 
@@ -64,14 +72,13 @@ def replace_binops_with_functions(tree):
             # TODO Make type finding more robust. 
             new_node = ast.Call(
                 func = ast.Name(id="CompareNumber__"+compare_map[compare_type], ctx=ast.Load()),
-                args = [node.left, node.comparators[0]],
+                args = [self.visit(node.left), self.visit(node.comparators[0])],
                 keywords = [],
                 starargs=None,
                 kwargs=None,
             )
             ast.copy_location(new_node, node)
             return new_node
-
 
     visitor=BinOpReplacementVisitor()
     return visitor.visit(tree)
@@ -107,7 +114,6 @@ def flatten_calls(tree):
             
             return nodelist
 
-
         def visit_Assign(self, node):
             if isinstance(node.value, (ast.Name, ast.Constant, ast.Tuple)):
                 # Special case for a bare Assignment - this is a Copy function, which is 'set_reg' internally
@@ -128,38 +134,6 @@ def flatten_calls(tree):
                 #ncalls[-1] = ast.Expr(value = ncalls[-1].value)
                 return ncalls
 
-
-    class WhilePatcher(ast.NodeTransformer):
-        '''
-        Desynced doesn't natively support "while" behavior.  
-        Specifically, only "Loop" instructions capture flow exit, but we want flow capture
-        coupled to generic conditional statements.  This patches in a dummy run-once loop:
-
-        while conditional:
-            body
-            
-        is translated to
-
-        ::loop_start::
-        if conditional:
-            while once:
-                body
-            goto ::loop_start::
-
-        The "goto" is added during flow control.
-        '''
-        def visit_While(self, node):
-            node.body.insert(0, ast.Call(
-                func=ast.Name(id='LoopRecipeIngredients', ctx=ast.Load()),
-                args=[ast.Constant(value='metalplate')]
-                ))
-            for i in range(1, len(node.body)):
-                node.body[i] = self.visit(node.body[i])
-            return node
-            
-    #whilepatch = WhilePatcher()
-    #tree = whilepatch.visit(tree)
-
     transformer = FlatteningTransformer()
     tree = transformer.visit(tree)
     return tree
@@ -169,12 +143,13 @@ def flatten_calls(tree):
 class DS_Call(ast.Assign):
     _fields = ('targets', 'args', 'op', 'frame', 'next')
 
-    def __init__(self, targets, args, op):
+    def __init__(self, targets, args, op, keywords={}):
         self.targets = targets
         self.args = args
         self.next = {}
         self.frame = -1
         self.op = op
+        self.keywords = keywords
 
     def unparse(self, node):
         self.fill()
@@ -193,7 +168,6 @@ class DS_Call(ast.Assign):
 
 ''' Monkey-Patch in an unparser for DS Calls '''
 ast._Unparser.visit_DS_Call = DS_Call.unparse
-
 def convert_to_ds_call(tree):
     
     class DS_Call_Transformer(ast.NodeTransformer):   
@@ -201,7 +175,8 @@ def convert_to_ds_call(tree):
         def visit_Call(self, node, target=None):
             if target:
                 node.targets=[target]
-            dscall =DS_Call( targets=[target], args=node.args, op=node.func.id) 
+            dscall =DS_Call( targets=[target], args=node.args, op=node.func.id,
+                           keywords = getattr(node, 'keywords', {}) )
             ast.copy_location(dscall, node)
             return [dscall]
 
@@ -571,7 +546,8 @@ def create_dso_from_ast(tree, debug=False):
             if exec_arg is None:
                 args['next']= 'next'
             elif exec_arg:
-                args[exec_arg[1] ]= 'next'
+                args[exec_arg[1].lower() ]= 'next'
+                
                 
             if op_args:
                 for i, arg in enumerate(op_args):
@@ -593,9 +569,9 @@ def create_dso_from_ast(tree, debug=False):
                 
 
             #args are one time use
-            def bind_and_delete(arg_key, flow_target):
+            def bind_and_delete(arg_key, flow_target, reason=""):
                     if (debug): 
-                        print(f"Binding {arg_key=} to {flow_target=}")
+                        print(f"Binding {arg_key=} to {flow_target=}\t", reason)
                     processed[args[arg_key]] = flow_target
                     del args[arg_key]
             
@@ -611,25 +587,25 @@ def create_dso_from_ast(tree, debug=False):
                 for param in parameters:
                     for arg in list(args.keys()):
                         if param != 'not' and param in arg:
-                            bind_and_delete(arg, flow_target)
+                            bind_and_delete(arg, flow_target, "parameter")
                             if 'true' in flows: del flows['true']
                 
             # switch targets are second highest priority
             for key in list(args.keys()):
                 if key not in ['all','exit','true','not']:
                     if key in flows:
-                        bind_and_delete(key, flows[key])
+                        bind_and_delete(key, flows[key], "switch_target")
                         del flows[key]
 
             if 'true' in flows:
                 target_arg = next(iter(args))
                 print("True Target Arg is ", target_arg)
-                bind_and_delete(target_arg, flows['true'])
+                bind_and_delete(target_arg, flows['true'], "true targets")
                 del flows['true']
 
             if 'false' in flows and args:
                 for key in list(args.keys()):
-                    bind_and_delete(key, flows['false'])
+                    bind_and_delete(key, flows['false'], "false targets")
                 del flows['false']
 
             ''' "Not" flips processed flows if there are only two outlets'''
@@ -673,6 +649,13 @@ def create_dso_from_ast(tree, debug=False):
                     if arg[0] == 'in':
                         res[str(i)] = self.translate_register_or_value(node.args,arg_ix)
                         arg_ix +=1
+            
+            if keywords := getattr(node, 'keywords', False):
+                for keyword in keywords:
+                    argname = keyword.arg
+                    value = ast.literal_eval(ast.unparse(keyword.value))
+                    res[argname] = value
+
 
             res.update(self.execs_from_call(node, op, parameters))
                        
