@@ -1,14 +1,14 @@
-def MarkTowers(lonelytower):
+def MarkTowers(lonelytower, placement, marker_x, marker_y, delta_x, delta_y):
   '''
   Places a cross-hair of foundations around potential spots for new towers.
   Towers boot up "lonely" and needing acknowledgement - they will broadcast Small Relay
   Until they're acknowledged.
 
-  Example is intended to highlight loops.
+  Example is intended to stress test loops and to encourage me to implement for range.
   '''
   lonelytower = _
   gridsize = 10
-  for potential, _ in LoopSignalMatch("c_small_relay"):
+  for potential, _ in LoopSignalMatch("v_letter_a"):
     lonelytower = potential
   Signal = lonelytower
   location_x, location_y = SeparateCoordinate(GetLocation(lonelytower))
