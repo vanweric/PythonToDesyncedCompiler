@@ -320,16 +320,13 @@ const App = () => {
           </Container>
         </Navbar>
 
-        <Container fluid="xl">
-          <div
-            className="p-4 bg-white border rounded shadow-sm"
-            overflow-y="auto"
-          >
+        <Container fluid="xl" className="flex-grow-1 position-relative">
+          <div className="p-4 bg-white border rounded shadow-sm position-absolute top-0 bottom-0 start-0 end-0 overflow-auto">
             <CodeMirror
               value={writeeditor}
               className="cm-outer-container"
               align="left"
-              height="400px"
+              height="100%"
               onChange={onEditorTextChange}
               ref={editorRefCallack}
               //extensions={[python()]}
