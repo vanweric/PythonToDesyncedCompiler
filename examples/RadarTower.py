@@ -1,4 +1,4 @@
-def RadarTower(enemy, damaged, dropped, construction):
+def RadarTower(enemy, damaged, dropped, construction, coordinates, acknowledged):
     enemy = GetClosestEntity("v_enemy_faction")
     if Distance(enemy)<19:
         Signal = enemy
@@ -14,3 +14,14 @@ def RadarTower(enemy, damaged, dropped, construction):
                 construction = GetClosestEntity("v_construction")
                 if Distance(construction)<12:
                     Signal = construction
+                else:
+                    if acknowledged == 0:
+                        Signal = "c_small_relay"
+                        WaiTicks(10)
+                        self = GetSelf()
+                        for _, signal in LoopSignalMatch(self):
+                            acknowledged = 1
+                        
+                    else: 
+                        Signal = _
+    coordinates = GetLocation(Signal)
